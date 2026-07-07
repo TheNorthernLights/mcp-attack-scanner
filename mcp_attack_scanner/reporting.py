@@ -42,6 +42,9 @@ class Finding:
     title: str
     outcome: Outcome
     severity: Severity = Severity.INFO
+    # Stable machine slug for the vulnerability class, e.g.
+    # "tool-chaining-exfiltration".
+    category: str = ""
     description: str = ""
     # Free-form supporting data: the tool calls made, responses observed, etc.
     evidence: dict[str, Any] = field(default_factory=dict)
@@ -136,24 +139,54 @@ def render_human(report: ScanReport) -> str:
 
     Returns the rendered string so the caller controls where it is written.
     """
+    import io
+
     from rich.console import Console
     from rich.table import Table
 
-    console = Console(record=True)
+    # Render into a buffer (not real stdout) so the caller owns the output.
+    console = Console(record=True, file=io.StringIO())
 
     if not report.findings:
         console.print(f"[bold]Target:[/bold] {report.target}")
-        console.print("[dim]No findings (scaffold — no attacks implemented yet).[/dim]")
+        console.print("[dim]No findings.[/dim]")
         return console.export_text()
 
     table = Table(title=f"MCP Attack Scan — {report.target}")
     table.add_column("Attack", style="cyan", no_wrap=True)
+    table.add_column("Category")
     table.add_column("Outcome")
     table.add_column("Severity")
     table.add_column("Title")
 
     for f in report.findings:
-        table.add_row(f.attack_id, f.outcome.value, f.severity.value, f.title)
+        table.add_row(f.attack_id, f.category, f.outcome.value, f.severity.value,
+                      f.title)
 
     console.print(table)
+
+    # Detail block for each finding so evidence (the chained tools and the
+    # sample of data that moved) is visible, not just summarised in a row.
+    for f in report.findings:
+        console.print()
+        console.print(f"[bold]{f.attack_id}[/bold] — {f.title} "
+                      f"([{_severity_style(f.severity)}]{f.severity.value}"
+                      f"[/{_severity_style(f.severity)}])")
+        if f.description:
+            console.print(f.description)
+        if f.evidence:
+            console.print("[dim]evidence:[/dim]")
+            for key, value in f.evidence.items():
+                console.print(f"  [cyan]{key}[/cyan]: {value}")
+
     return console.export_text()
+
+
+def _severity_style(severity: Severity) -> str:
+    return {
+        Severity.CRITICAL: "bold red",
+        Severity.HIGH: "red",
+        Severity.MEDIUM: "yellow",
+        Severity.LOW: "blue",
+        Severity.INFO: "dim",
+    }.get(severity, "white")

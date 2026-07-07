@@ -8,12 +8,21 @@ a clear "not implemented" message.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 
 import click
 
 from . import __version__
+from .attacks import tool_chain_exfil
 from .client import MCPClient, TargetConfig, Transport
-from .reporting import ToolInfo, render_tools_human, render_tools_json
+from .reporting import (
+    ScanReport,
+    ToolInfo,
+    render_human,
+    render_json,
+    render_tools_human,
+    render_tools_json,
+)
 
 
 @click.group(context_settings={"help_option_names": ["-h", "--help"]})
@@ -188,12 +197,26 @@ def call_tool(transport: str, command: str | None, args: tuple[str, ...],
 )
 def scan(transport: str, command: str | None, args: tuple[str, ...],
          url: str | None, output: str) -> None:
-    """Run all attack modules against the target (not implemented yet)."""
-    _build_config(transport, command, args, url)
-    raise click.ClickException(
-        "scan is not implemented yet — attacks arrive in later sessions "
-        "(scaffold only)."
-    )
+    """Run the implemented attack modules against the target.
+
+    Currently runs a single module: tool-chaining exfiltration. More attack
+    categories are added in later sessions.
+    """
+    cfg = _build_config(transport, command, args, url)
+    report = ScanReport(target=_target_label(cfg))
+    try:
+        findings = asyncio.run(tool_chain_exfil.run(cfg))
+    except Exception as exc:  # surface a clean CLI error, not a traceback
+        raise click.ClickException(f"scan failed: {exc}")
+
+    for finding in findings:
+        report.add(finding)
+    report.finished_at = datetime.now(timezone.utc).isoformat()
+
+    if output == "json":
+        click.echo(render_json(report))
+    else:
+        click.echo(render_human(report))
 
 
 if __name__ == "__main__":
