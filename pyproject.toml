@@ -1,0 +1,47 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-attack-scanner"
+version = "0.0.1"
+description = "Dynamic security testing for MCP (Model Context Protocol) servers — executes tool-chaining abuse, permission escalation, and prompt-injection-via-tool-output attacks end-to-end against a live target."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Abhinav Giridhar" }]
+keywords = ["mcp", "security", "dast", "pentest", "prompt-injection"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Topic :: Security",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+dependencies = [
+    "mcp>=1.2.0",
+    "click>=8.1",
+    "rich>=13.7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+]
+
+[project.scripts]
+mcp-attack-scanner = "mcp_attack_scanner.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/abhinavgiridhar/mcp-attack-scanner"
+Repository = "https://github.com/abhinavgiridhar/mcp-attack-scanner"
+
+[tool.hatch.build.targets.wheel]
+packages = ["mcp_attack_scanner"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
