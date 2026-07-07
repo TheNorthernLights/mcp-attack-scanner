@@ -112,5 +112,13 @@ class MCPClient:
         return list(result.tools)
 
     async def call_tool(self, name: str, arguments: dict[str, Any]) -> Any:
-        """Invoke a tool on the target. Not yet implemented."""
-        raise NotImplementedError("call_tool is not implemented yet (scaffold only).")
+        """Invoke a tool on the target and return the SDK `CallToolResult`.
+
+        The returned object carries `isError` (whether the server reported the
+        call as failed), `content` (the content blocks the tool returned, e.g.
+        `TextContent`), and `structuredContent`. A tool that raises server-side
+        comes back with `isError=True` rather than raising here; transport-level
+        failures still propagate as exceptions.
+        """
+        session = self._require_session()
+        return await session.call_tool(name, arguments)
