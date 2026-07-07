@@ -68,9 +68,67 @@ class ScanReport:
         return json.dumps(self.to_dict(), indent=indent, default=str)
 
 
+@dataclass
+class ToolInfo:
+    """A tool discovered on the target during enumeration."""
+
+    name: str
+    description: str = ""
+    input_schema: dict[str, Any] = field(default_factory=dict)
+
+    @classmethod
+    def from_sdk(cls, tool: Any) -> "ToolInfo":
+        """Build from an `mcp.types.Tool` returned by the SDK."""
+        return cls(
+            name=tool.name,
+            description=(tool.description or "").strip(),
+            input_schema=tool.inputSchema or {},
+        )
+
+
 def render_json(report: ScanReport) -> str:
     """Machine-readable JSON output."""
     return report.to_json()
+
+
+def render_tools_json(target: str, tools: list[ToolInfo]) -> str:
+    """Machine-readable JSON listing of discovered tools."""
+    payload = {
+        "target": target,
+        "tool_count": len(tools),
+        "tools": [asdict(t) for t in tools],
+    }
+    return json.dumps(payload, indent=2, default=str)
+
+
+def render_tools_human(target: str, tools: list[ToolInfo]) -> str:
+    """Human-readable table of discovered tools rendered with `rich`."""
+    import io
+
+    from rich.console import Console
+    from rich.table import Table
+
+    # Render into a buffer (not real stdout) so the caller owns the output.
+    console = Console(record=True, file=io.StringIO())
+
+    if not tools:
+        console.print(f"[bold]Target:[/bold] {target}")
+        console.print("[dim]No tools exposed by the target.[/dim]")
+        return console.export_text()
+
+    table = Table(title=f"MCP Tools — {target}")
+    table.add_column("Tool", style="cyan", no_wrap=True)
+    table.add_column("Description")
+    table.add_column("Parameters")
+
+    for t in tools:
+        params = sorted((t.input_schema.get("properties") or {}).keys())
+        table.add_row(t.name, t.description or "[dim](none)[/dim]",
+                      ", ".join(params) or "[dim](none)[/dim]")
+
+    console.print(table)
+    console.print(f"[dim]{len(tools)} tool(s) discovered.[/dim]")
+    return console.export_text()
 
 
 def render_human(report: ScanReport) -> str:
