@@ -92,9 +92,9 @@ This is an early work-in-progress. Being explicit about what is and is not real:
   than stdio. Only stdio targets work today.
 - **Additional attack categories.** Only tool-chaining exfiltration exists.
   Permission escalation and prompt-injection-via-tool-output are not implemented.
-- **Safe-target / false-positive testing.** The scanner has only been exercised
-  against the intentionally-vulnerable lab. There is no non-vulnerable target yet
-  to confirm it stays quiet when it should.
+- **~~Safe-target / false-positive testing.~~** Done — `test-lab/clean_mcp_lab/`
+  mirrors the vulnerable lab with egress control and content inspection on the
+  send path. The scanner reports 0 findings against it.
 - **GUI.** CLI only.
 
 Do not treat this as a mature or complete tool — it is a small, honest core with
@@ -230,9 +230,8 @@ Rough, honest next steps — no timelines:
 
 1. **A second attack category** (e.g. permission escalation or
    prompt-injection-via-tool-output) to prove the module structure generalizes.
-2. **Safe-target validation testing** — a non-vulnerable server to confirm the
-   scanner reports nothing when there is nothing to report (false-positive
-   discipline).
+2. ~~**Safe-target validation testing**~~ — done. `test-lab/clean_mcp_lab/` is
+   a properly-secured counterpart; the scanner reports 0 findings against it.
 3. **HTTP / streamable-HTTP transport** in `MCPClient`.
 4. **A GUI**, eventually, once the CLI and attack coverage are solid.
 

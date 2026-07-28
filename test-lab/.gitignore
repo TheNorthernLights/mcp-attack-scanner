@@ -1,3 +1,4 @@
-# Generated lab state — recreate with `python -m vulnerable_mcp_lab.seed`
+# Generated lab state — recreate with seed.py in each lab
 vulnerable_mcp_lab/sandbox/
+clean_mcp_lab/sandbox/
 notifications.log

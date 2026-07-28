@@ -1,24 +1,34 @@
-# test-lab — vulnerable MCP server (test target)
+# test-lab — MCP server test targets
 
-> ## ⚠️ INTENTIONALLY VULNERABLE — TEST TARGET ONLY
+> ## ⚠️ TEST TARGETS ONLY
 >
-> `vulnerable_mcp_lab` is a **deliberately insecure** MCP server that exists so
-> `mcp-attack-scanner` has something realistic to attack in a contained lab.
+> Both servers in this directory exist solely for testing `mcp-attack-scanner`.
 >
-> - **Never** expose it on a network or bind it to a public interface.
-> - **Never** run it against real files or a real webhook.
-> - It is kept out of the shipped tool on purpose — it lives here, not in
+> - **Never** expose either server on a network or bind it to a public interface.
+> - **Never** run them against real files or a real webhook.
+> - They are kept out of the shipped tool on purpose — they live here, not in
 >   `mcp_attack_scanner/`.
 >
 > All data is fake and all "network" activity is simulated.
 
 ## Why this exists
 
-`mcp-attack-scanner` does **dynamic** testing — it needs a live MCP server to
-attack. This is that server. It reproduces one specific, realistic weakness so
-the scanner's tool-chaining / exfiltration checks have a ground truth to detect.
+`mcp-attack-scanner` does **dynamic** testing — it needs live MCP servers to
+attack. This directory contains two:
 
-## Tools exposed
+| Lab | Purpose | Expected scan result |
+| --- | --- | --- |
+| `vulnerable_mcp_lab/` | True positive — has the vulnerability | **1 finding** (tool-chaining exfiltration) |
+| `clean_mcp_lab/` | False-positive control — same tools, properly secured | **0 findings** |
+
+Together they form the ground truth for calibrating the scanner: it should find
+the vulnerability in the first and stay quiet for the second.
+
+---
+
+## vulnerable_mcp_lab
+
+### Tools exposed
 
 | Tool | Behavior | Safety |
 | --- | --- | --- |
@@ -26,7 +36,7 @@ the scanner's tool-chaining / exfiltration checks have a ground truth to detect.
 | `list_files(directory=".")` | Lists entries in the sandbox | Contained — same sandbox check |
 | `send_notification(message, webhook_url)` | "Sends" a notification | **Simulated** — appends to `notifications.log`, makes no real HTTP call |
 
-## The intended vulnerability
+### The intended vulnerability
 
 There is **no data-flow or egress control**. Nothing stops an agent from
 chaining:
@@ -39,53 +49,91 @@ That read-then-exfiltrate chain is the exact behavior `mcp-attack-scanner` is
 meant to catch. The file tools themselves are properly sandboxed on purpose —
 the lab demonstrates *tool-chaining abuse*, not arbitrary file read.
 
-The seeded `credentials.txt` contains **fake** values (AWS's public
-documentation example keys, a dummy DB password, and a fake API token). They are
-not real and grant access to nothing.
-
-## Usage
-
-Requires Python **3.10+** (the `mcp` SDK requirement) with the `mcp` SDK
-installed.
+### Usage
 
 ```bash
+cd test-lab
+
 # 1. Populate the sandbox with fake files (incl. credentials.txt)
 python -m vulnerable_mcp_lab.seed
 
-# 2. Run the server (stdio transport)
-python -m vulnerable_mcp_lab.server
-```
-
-Then point the scanner at it, e.g.:
-
-```bash
+# 2. Scan (should report 1 finding)
 mcp-attack-scanner scan --transport stdio \
   --command python --arg -m --arg vulnerable_mcp_lab.server
 ```
 
-(Run the scanner from this `test-lab/` directory, or otherwise ensure
-`vulnerable_mcp_lab` is importable.)
+---
+
+## clean_mcp_lab
+
+### Tools exposed
+
+Same three tools, same sandbox, same seeded `credentials.txt` — but with
+egress control on `send_notification`:
+
+| Tool | Behavior | Safety |
+| --- | --- | --- |
+| `read_file(path)` | Reads a text file from the sandbox | Contained — same sandbox check as `vulnerable_mcp_lab` |
+| `list_files(directory=".")` | Lists entries in the sandbox | Contained — same sandbox check |
+| `send_notification(message, webhook_url)` | "Sends" a notification | **Two controls:** destination must be on an explicit allowlist, and message content is scanned for credential patterns. Either check failing refuses the send. Accepted sends are still only logged locally. |
+
+### Why this blocks exfiltration
+
+1. **Destination allowlist.** The webhook URL must be HTTPS and its host must
+   be in `ALLOWED_WEBHOOK_HOSTS` (currently two `.test` hostnames). The
+   attacker-controlled `http://attacker.example/exfil` that the scanner uses is
+   refused because it is not on the list (and is not HTTPS).
+
+2. **Outbound content inspection.** Even if an allowlisted destination were
+   used, the message body is scanned for credential-shaped patterns (AWS keys,
+   `password=`/`token=`/`secret=` assignments with actual values, private key
+   blocks, bearer tokens). Anything matching is refused.
+
+Both controls fail closed: the tool returns an error, so the scanner sees the
+send call fail and does not count it as a successful exfiltration chain.
+
+### Usage
+
+```bash
+cd test-lab
+
+# 1. Populate the sandbox with fake files
+python -m clean_mcp_lab.seed
+
+# 2. Scan (should report 0 findings)
+mcp-attack-scanner scan --transport stdio \
+  --command python --arg -m --arg clean_mcp_lab.server
+```
+
+---
 
 ## Layout
 
 ```
 test-lab/
 ├── README.md
-├── .gitignore                    # ignores generated sandbox/ and notifications.log
-└── vulnerable_mcp_lab/
+├── .gitignore
+├── vulnerable_mcp_lab/
+│   ├── __init__.py
+│   ├── server.py                  # the 3-tool vulnerable MCP server
+│   ├── seed.py                    # writes fake files into sandbox/
+│   ├── sandbox/                   # generated by seed.py (gitignored)
+│   └── notifications.log          # generated by send_notification (gitignored)
+└── clean_mcp_lab/
     ├── __init__.py
-    ├── server.py                 # the 3-tool MCP server
-    ├── seed.py                   # writes fake files into sandbox/
-    ├── sandbox/                  # generated by seed.py (gitignored)
-    └── notifications.log         # generated by send_notification (gitignored)
+    ├── server.py                  # the 3-tool secured MCP server
+    ├── seed.py                    # writes identical fake files
+    ├── sandbox/                   # generated by seed.py (gitignored)
+    └── notifications.log          # generated by send_notification (gitignored)
 ```
 
-## Containment guarantees
+## Containment guarantees (both labs)
 
 - **Filesystem:** `read_file` / `list_files` resolve every path against the
   sandbox root and reject anything that escapes it. Real system files are not
   reachable.
-- **Network:** `send_notification` performs no real HTTP request. It only writes
-  a line to `notifications.log`.
+- **Network:** `send_notification` in both labs performs no real HTTP request.
+  It only writes a line to `notifications.log`.
 - **Data:** the only "secrets" present are the obviously fake values written by
-  `seed.py`.
+  `seed.py` (AWS's public documentation example keys, a dummy DB password, and
+  a fake API token).
