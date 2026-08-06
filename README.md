@@ -45,16 +45,20 @@ flowchart TD
     end
 
     subgraph atk ["Attacks and Reporting"]
-        Attack["Attack module<br/>attacks/tool_chain_exfil.py"]
+        Exfil["attacks/tool_chain_exfil.py"]
+        PermEsc["attacks/permission_escalation.py"]
         Findings["Finding / ScanReport<br/>(reporting.py data model)"]
         Render["Renderers<br/>render_human · render_json"]
         Out["Human table / JSON"]
-        Attack -->|uses| Client
-        Attack -->|produces| Findings
+        Exfil -->|uses| Client
+        PermEsc -->|uses| Client
+        Exfil -->|produces| Findings
+        PermEsc -->|produces| Findings
         Findings --> Render --> Out
     end
 
-    CLI -->|scan runs| Attack
+    CLI -->|scan runs both| Exfil
+    CLI -->|scan runs both| PermEsc
 ```
 
 Concretely:
@@ -64,8 +68,12 @@ Concretely:
 - **`client.py`** — `MCPClient`, a thin async wrapper over the official `mcp`
   SDK. `connect()` spawns the target over stdio and runs the MCP `initialize`
   handshake; `list_tools()` and `call_tool()` enumerate and invoke tools.
-- **`attacks/tool_chain_exfil.py`** — the one implemented attack module. It uses
-  `MCPClient` and returns a list of `Finding`s.
+- **`attacks/`** — the attack modules. Each exposes `ATTACK_ID`, `CATEGORY`, and
+  `async run(config) -> list[Finding]`, and opens its own connection to the
+  target, so modules are independent of one another. `scan` walks
+  `cli.ATTACK_MODULES` and merges the findings into one report.
+  - `tool_chain_exfil.py` — read-tool output pushed out through a send tool.
+  - `permission_escalation.py` — broken authorization on identity-scoped tools.
 - **`reporting.py`** — the `Finding` / `ScanReport` data model plus renderers
   (`render_human` via `rich`, `render_json`).
 
@@ -81,24 +89,25 @@ This is an early work-in-progress. Being explicit about what is and is not real:
 | Real stdio MCP client — connect + `initialize` handshake | ✅ working |
 | Tool discovery (`list_tools`) | ✅ working |
 | Tool invocation (`call_tool`) | ✅ working |
-| Attack module: tool-chaining exfiltration detection | ✅ working (one module) |
+| Attack module: tool-chaining exfiltration detection | ✅ working |
+| Attack module: permission escalation (broken authorization) | ✅ working |
 | Reporting: human table + JSON | ✅ working |
-| Vulnerable test lab | ✅ present (`test-lab/`) |
+| Vulnerable + clean test labs | ✅ present (`test-lab/`) |
 
 **Not yet built:**
 
 - **HTTP transport.** The `--transport http` / `--url` flags are parsed, but
   `MCPClient.connect()` currently raises `NotImplementedError` for anything other
   than stdio. Only stdio targets work today.
-- **Additional attack categories.** Only tool-chaining exfiltration exists.
-  Permission escalation and prompt-injection-via-tool-output are not implemented.
+- **Additional attack categories.** Tool-chaining exfiltration and permission
+  escalation exist; prompt-injection-via-tool-output is not implemented.
 - **~~Safe-target / false-positive testing.~~** Done — `test-lab/clean_mcp_lab/`
-  mirrors the vulnerable lab with egress control and content inspection on the
-  send path. The scanner reports 0 findings against it.
+  mirrors the vulnerable lab with egress control on the send path and enforced
+  identity scoping on the record tool. The scanner reports 0 findings against it.
 - **GUI.** CLI only.
 
 Do not treat this as a mature or complete tool — it is a small, honest core with
-one working attack.
+two working attacks.
 
 ## The vulnerable test lab
 
@@ -106,22 +115,30 @@ one working attack.
 server that exists purely so the scanner has a realistic target to attack during
 development. It is deliberately kept out of the shipped package.
 
-It exposes three tools:
+It exposes four tools:
 
 | Tool | Behavior | Containment |
 | --- | --- | --- |
 | `read_file(path)` | Reads a text file from a sandbox directory | Path traversal outside the sandbox is rejected |
 | `list_files(directory=".")` | Lists entries in the sandbox | Same sandbox check |
 | `send_notification(message, webhook_url)` | "Sends" a notification | **Simulated** — appends to a local `notifications.log`, makes no real HTTP request |
+| `get_user_record(user_id)` | Returns one record from a tiny in-memory user directory | Three invented people; the SSN-shaped field uses the never-issued `900-xx-xxxx` range |
 
-The intended vulnerability is the *lack of egress control between tools*: nothing
-stops `read_file("credentials.txt")` from feeding its output into
-`send_notification(message=<secret>, webhook_url=<attacker>)`.
+It carries one intended vulnerability per attack category:
+
+1. **Lack of egress control between tools** — nothing stops
+   `read_file("credentials.txt")` from feeding its output into
+   `send_notification(message=<secret>, webhook_url=<attacker>)`.
+2. **Broken authorization on an identity-scoped tool** — `get_user_record` is
+   documented as returning "the current user's own account record" but never
+   checks that `user_id` is the caller's, so `get_user_record("u2")` hands back
+   another user's record. The MCP equivalent of an IDOR.
 
 Safety guarantees, by design:
 
 - **Never real data** — the seeded `credentials.txt` holds obviously-fake values
-  (AWS's public documentation example keys, a dummy DB password, a fake token).
+  (AWS's public documentation example keys, a dummy DB password, a fake token),
+  and the user records are invented people at `.test` addresses.
 - **Never real network calls** — `send_notification` only writes a line to a log
   file.
 - **Never real files** — the file tools are sandboxed and reject any path that
@@ -131,7 +148,8 @@ See [`test-lab/README.md`](test-lab/README.md) for full details.
 
 ## Comparison: dynamic vs. static, against the identical target
 
-Both tools were run against the same three-tool lab server described above:
+Both tools were run against the same lab server, as it stood at the time — the
+three-tool version, before `get_user_record` was added:
 
 - **`mcp-attack-scanner` (this tool, dynamic):** reported **1 finding** —
   `tool-chaining-exfiltration`, HIGH severity, `read_file → send_notification`,
@@ -205,9 +223,9 @@ mcp-attack-scanner scan \
   --transport stdio --command python --arg -m --arg my_server
 ```
 
-`scan` currently runs the single implemented attack module (tool-chaining
-exfiltration) and renders the results. `--output json` emits the full
-`ScanReport` as JSON.
+`scan` runs every implemented attack module — tool-chaining exfiltration and
+permission escalation — and renders their findings in one report. `--output
+json` emits the full `ScanReport` as JSON.
 
 ### Trying it against the lab
 
@@ -228,8 +246,9 @@ Run from `test-lab/` (or otherwise ensure `vulnerable_mcp_lab` is importable).
 
 Rough, honest next steps — no timelines:
 
-1. **A second attack category** (e.g. permission escalation or
-   prompt-injection-via-tool-output) to prove the module structure generalizes.
+1. ~~**A second attack category**~~ — done. `permission_escalation` detects
+   broken authorization on identity-scoped tools; `scan` runs it alongside
+   `tool_chain_exfil`. Next up in this line: prompt-injection-via-tool-output.
 2. ~~**Safe-target validation testing**~~ — done. `test-lab/clean_mcp_lab/` is
    a properly-secured counterpart; the scanner reports 0 findings against it.
 3. **HTTP / streamable-HTTP transport** in `MCPClient`.

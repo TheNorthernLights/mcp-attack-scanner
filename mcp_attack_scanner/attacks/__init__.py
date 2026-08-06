@@ -1,7 +1,16 @@
 """Attack modules.
 
-Each attack category (tool-chaining abuse, permission escalation,
-prompt-injection-via-tool-output, ...) will live in its own module here and be
-registered for discovery by the CLI. Empty for now — attacks are implemented one
-category at a time in later sessions.
+Each attack category lives in its own module here and exposes the same surface
+so the CLI can run them uniformly:
+
+    ATTACK_ID: str                      # stable slug, e.g. "permission_escalation"
+    CATEGORY: str                       # vulnerability class, e.g. "permission-escalation"
+    async def run(config) -> list[Finding]
+
+`run` owns its own connection to the target, so modules are independent of each
+other. `cli.ATTACK_MODULES` is the list `scan` walks.
+
+Implemented so far:
+  * `tool_chain_exfil` — read-tool output pushed out through a send tool.
+  * `permission_escalation` — broken authorization on identity-scoped tools.
 """

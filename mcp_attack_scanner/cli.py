@@ -1,21 +1,23 @@
 """Command-line entrypoint for mcp-attack-scanner.
 
-Scaffold only: the commands parse arguments, build a target configuration, and
-wire up reporting, but no attacks are implemented yet. Running an attack raises
-a clear "not implemented" message.
+`list-tools` and `call-tool` are discovery/debug helpers; `scan` runs every
+implemented attack module against the target and renders one combined report.
 """
 
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
+from typing import Any
 
 import click
 
 from . import __version__
-from .attacks import tool_chain_exfil
+from .attacks import permission_escalation, tool_chain_exfil
 from .client import MCPClient, TargetConfig, Transport
 from .reporting import (
+    Finding,
+    Outcome,
     ScanReport,
     ToolInfo,
     render_human,
@@ -85,6 +87,12 @@ def _build_config(transport: str, command: str | None, args: tuple[str, ...],
     )
     cfg.validate()
     return cfg
+
+
+# Attack modules run by `scan`, in order. Each exposes
+# `run(TargetConfig) -> list[Finding]` and opens its own connection to the
+# target, so a module that fails to connect does not take the others down.
+ATTACK_MODULES = (tool_chain_exfil, permission_escalation)
 
 
 def _target_label(cfg: TargetConfig) -> str:
@@ -186,6 +194,30 @@ def call_tool(transport: str, command: str | None, args: tuple[str, ...],
         click.echo(repr(result))
 
 
+async def _run_attacks(cfg: TargetConfig) -> list[Finding]:
+    """Run every attack module in turn and collect their findings.
+
+    Modules run sequentially — each spawns its own copy of a stdio target, and
+    running them concurrently would mean several live subprocesses racing on the
+    same target state. A module that blows up is recorded as an ERROR finding
+    rather than discarding what the other modules already confirmed.
+    """
+    findings: list[Finding] = []
+    for module in ATTACK_MODULES:
+        try:
+            findings.extend(await module.run(cfg))
+        except Exception as exc:
+            findings.append(Finding(
+                attack_id=module.ATTACK_ID,
+                category=module.CATEGORY,
+                title=f"{module.ATTACK_ID} could not be completed",
+                outcome=Outcome.ERROR,
+                description=f"The module raised before reaching a verdict: {exc}",
+                evidence={"error": f"{type(exc).__name__}: {exc}"},
+            ))
+    return findings
+
+
 @main.command()
 @_target_options
 @click.option(
@@ -197,15 +229,15 @@ def call_tool(transport: str, command: str | None, args: tuple[str, ...],
 )
 def scan(transport: str, command: str | None, args: tuple[str, ...],
          url: str | None, output: str) -> None:
-    """Run the implemented attack modules against the target.
+    """Run every implemented attack module against the target.
 
-    Currently runs a single module: tool-chaining exfiltration. More attack
-    categories are added in later sessions.
+    Runs tool-chaining exfiltration and permission escalation, and reports the
+    findings from both. More attack categories are added in later sessions.
     """
     cfg = _build_config(transport, command, args, url)
     report = ScanReport(target=_target_label(cfg))
     try:
-        findings = asyncio.run(tool_chain_exfil.run(cfg))
+        findings = asyncio.run(_run_attacks(cfg))
     except Exception as exc:  # surface a clean CLI error, not a traceback
         raise click.ClickException(f"scan failed: {exc}")
 

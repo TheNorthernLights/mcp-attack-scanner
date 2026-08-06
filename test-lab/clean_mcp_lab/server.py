@@ -1,13 +1,19 @@
 """Properly-secured MCP server — FALSE-POSITIVE CONTROL TARGET.
 
 This is the control target for mcp-attack-scanner. It deliberately mirrors
-`vulnerable_mcp_lab`: the same three tools, the same sandbox, the same seeded
-fake `credentials.txt`. The one difference is the one that matters — this server
-enforces egress control on `send_notification`, so the read → send chain that
-`vulnerable_mcp_lab` allows is refused here.
+`vulnerable_mcp_lab`: the same four tools, the same sandbox, the same seeded
+fake `credentials.txt`, the same fake user directory. The differences are the
+ones that matter — this server enforces egress control on `send_notification`
+and identity scoping on `get_user_record`, so both attacks that succeed against
+`vulnerable_mcp_lab` are refused here.
 
 Its purpose is to check that the scanner stays quiet when there is nothing to
 report. A finding against this target is a false positive.
+
+The control on `get_user_record`:
+  The tool is documented as self-scoped, and it enforces that: the requested
+  `user_id` must equal the session's own identity, and any other id is refused
+  with an authorization error instead of returning that user's record.
 
 The two controls on `send_notification`:
   1. **Destination allowlist.** The webhook URL must be HTTPS and its host must
@@ -19,8 +25,8 @@ The two controls on `send_notification`:
      `password=`/`token=`/`secret=` assignments with an actual value, private
      key blocks, bearer tokens). A match is refused.
 
-Both controls fail closed: a refusal raises, so the caller gets an MCP tool
-error rather than a success response.
+Every control here fails closed: a refusal raises, so the caller gets an MCP
+tool error rather than a success response.
 
 Safety, same as the vulnerable lab: the file tools are sandboxed, and
 `send_notification` never makes a real HTTP request — an accepted send is only
@@ -65,6 +71,39 @@ SECRET_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
         r"(?i)\b(?:password|passwd|secret|token|api[_-]?key|access[_-]?key"
         r"|client[_-]?secret|credential)s?\b\s*[:=]\s*[^\s'\"]{4,}")),
 )
+
+# Same fake user directory as the vulnerable lab — same made-up people, same
+# never-issued 900-xx-xxxx SSN range. Only the access check differs.
+USER_RECORDS: dict[str, dict[str, str]] = {
+    "u1": {
+        "user_id": "u1",
+        "name": "Ada Nguyen",
+        "email": "ada.nguyen@acme-lab.test",
+        "ssn": "900-11-0001",
+        "plan": "enterprise",
+    },
+    "u2": {
+        "user_id": "u2",
+        "name": "Bruno Okafor",
+        "email": "bruno.okafor@acme-lab.test",
+        "ssn": "900-22-0002",
+        "plan": "starter",
+    },
+    "u3": {
+        "user_id": "u3",
+        "name": "Chen Wei",
+        "email": "chen.wei@acme-lab.test",
+        "ssn": "900-33-0003",
+        "plan": "enterprise",
+    },
+}
+
+# The identity this session is authenticated as. A real server would derive this
+# per-request from an auth context (token, session cookie, mTLS identity); the
+# lab has no auth system, so the "logged-in user" is fixed. What matters for the
+# control is that the caller cannot influence it — it is never read from tool
+# arguments.
+CURRENT_SESSION_USER = "u1"
 
 mcp = FastMCP("clean-mcp-lab")
 
@@ -155,6 +194,26 @@ def send_notification(message: str, webhook_url: str) -> str:
         fh.write(f"{timestamp}\tPOST {webhook_url}\t{message}\n")
     logger.info("SIMULATED notification -> %s", host)
     return f"Notification queued to {webhook_url} (simulated, logged locally)."
+
+
+@mcp.tool()
+def get_user_record(user_id: str) -> dict[str, str]:
+    """Get the current user's own account record.
+
+    Identity scope is enforced: the requested `user_id` must be the session's
+    own identity. Asking for anyone else's id is refused with an authorization
+    error, so this tool cannot be used to read another user's record.
+    """
+    if user_id != CURRENT_SESSION_USER:
+        logger.warning("denied cross-identity record read for user_id=%s", user_id)
+        raise ValueError(
+            f"authorization denied: this session is {CURRENT_SESSION_USER!r} and "
+            f"may only read its own record, not {user_id!r}")
+
+    record = USER_RECORDS.get(CURRENT_SESSION_USER)
+    if record is None:
+        raise KeyError(f"no such user record: {CURRENT_SESSION_USER!r}")
+    return dict(record)
 
 
 def main() -> None:
