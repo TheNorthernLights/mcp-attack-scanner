@@ -13,10 +13,17 @@ above it — attack modules, reporting, CLI — is transport-agnostic.
 
 from __future__ import annotations
 
+import os
+import sys
 from contextlib import AsyncExitStack, asynccontextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, AsyncIterator
+
+# Default budget for connecting to the target and completing its MCP
+# `initialize` handshake. Individual tool calls are not clamped by this — a
+# tool that legitimately takes a while is not the connection's fault.
+DEFAULT_CONNECT_TIMEOUT = 30.0
 
 
 class Transport(str, Enum):
@@ -45,11 +52,31 @@ class TargetConfig:
     url: str | None = None
     headers: dict[str, str] = field(default_factory=dict)
 
+    # Show the target subprocess's stderr (stdio only). Off by default so a
+    # chatty server does not drown out the scanner's own output.
+    verbose: bool = False
+
+    # Seconds to wait for the initial `connect + initialize` handshake.
+    connect_timeout: float = DEFAULT_CONNECT_TIMEOUT
+
     def validate(self) -> None:
         if self.transport is Transport.STDIO and not self.command:
-            raise ValueError("stdio transport requires a --command to spawn")
+            raise ValueError(
+                "stdio transport requires --command (the executable to spawn)"
+            )
         if self.transport is Transport.HTTP and not self.url:
-            raise ValueError("http transport requires a --url")
+            raise ValueError(
+                "http transport requires --url (the streamable-HTTP endpoint)"
+            )
+        if self.transport is Transport.STDIO and self.url:
+            raise ValueError(
+                "stdio transport ignores --url; drop it or use --transport http"
+            )
+        if self.transport is Transport.HTTP and (self.command or self.args):
+            raise ValueError(
+                "http transport ignores --command/--arg; drop them or use "
+                "--transport stdio"
+            )
 
 
 class MCPClient:
@@ -69,13 +96,32 @@ class MCPClient:
         handshake, and keeps the session open for the duration of the `async
         with` block. On exit the session and the transport are torn down (and
         for stdio the subprocess is reaped).
+
+        The connect+initialize step is bounded by `config.connect_timeout`.
+        Once inside the `async with`, per-call operations are not timed here —
+        a legitimately slow tool is not the connection's fault.
         """
+        import asyncio
+
         from mcp import ClientSession
 
         async with AsyncExitStack() as stack:
-            read, write = await self._open_transport(stack)
-            session = await stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            try:
+                read, write = await asyncio.wait_for(
+                    self._open_transport(stack),
+                    timeout=self.config.connect_timeout,
+                )
+                session = await stack.enter_async_context(
+                    ClientSession(read, write))
+                await asyncio.wait_for(
+                    session.initialize(),
+                    timeout=self.config.connect_timeout,
+                )
+            except asyncio.TimeoutError as exc:
+                raise TimeoutError(
+                    f"target did not complete the MCP initialize handshake "
+                    f"within {self.config.connect_timeout:.0f}s"
+                ) from exc
             self._session = session
             try:
                 yield self
@@ -97,8 +143,16 @@ class MCPClient:
                 args=self.config.args,
                 env=self.config.env or None,
             )
+            # Suppress the target subprocess's stderr unless the user asked
+            # for --verbose. A chatty server otherwise obscures the scanner's
+            # own output. `errlog` expects a text-mode file object.
+            if self.config.verbose:
+                errlog = sys.stderr
+            else:
+                errlog = stack.enter_context(
+                    open(os.devnull, "w", encoding="utf-8"))
             read, write = await stack.enter_async_context(
-                stdio_client(server_params)
+                stdio_client(server_params, errlog=errlog)
             )
             return read, write
 

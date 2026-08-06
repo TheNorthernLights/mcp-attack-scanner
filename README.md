@@ -1,10 +1,48 @@
 # MCP Attack Scanner
 
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+[![Status: alpha](https://img.shields.io/badge/status-alpha-orange.svg)](CHANGELOG.md)
+[![Tests](https://img.shields.io/badge/tests-52%20passing-brightgreen.svg)](tests/)
+
 **Dynamic security testing for [MCP (Model Context Protocol)](https://modelcontextprotocol.io) servers.**
 
 `mcp-attack-scanner` connects to a *live* target MCP server, executes attacks
 end-to-end, and reports only findings it could actually confirm against the
 running target.
+
+## Contents
+
+- [Quick start](#quick-start)
+- [Why this exists](#why-this-exists)
+- [Architecture](#architecture)
+- [Current status](#current-status)
+- [The vulnerable test lab](#the-vulnerable-test-lab)
+- [Comparison: dynamic vs. static](#comparison-dynamic-vs-static-against-the-identical-target)
+- [Installation](#installation)
+- [Usage](#usage)
+- [Roadmap](#roadmap)
+- [Contributing](#contributing)
+- [Authorized use only](#authorized-use-only)
+- [License](#license)
+
+## Quick start
+
+From a clean clone to a real finding:
+
+```bash
+git clone https://github.com/TheNorthernLights/mcp-attack-scanner.git
+cd mcp-attack-scanner
+python -m venv venv && source venv/bin/activate
+pip install -e ".[dev]"
+cd test-lab && python -m vulnerable_mcp_lab.seed           # seed the sandbox
+mcp-attack-scanner scan --transport stdio \
+    --command python --arg -m --arg vulnerable_mcp_lab.server
+```
+
+Expected output: two HIGH-severity findings — a tool-chaining exfiltration
+chain (`read_file → send_notification`) and a permission-escalation IDOR on
+`get_user_record`.
 
 ## Why this exists
 
@@ -102,9 +140,6 @@ This is an early work-in-progress. Being explicit about what is and is not real:
 
 - **Additional attack categories.** Tool-chaining exfiltration and permission
   escalation exist; prompt-injection-via-tool-output is not implemented.
-- **~~Safe-target / false-positive testing.~~** Done — `test-lab/clean_mcp_lab/`
-  mirrors the vulnerable lab with egress control on the send path and enforced
-  identity scoping on the record tool. The scanner reports 0 findings against it.
 - **GUI.** CLI only.
 
 Do not treat this as a mature or complete tool — it is a small, honest core with
@@ -145,6 +180,10 @@ Safety guarantees, by design:
 - **Never real files** — the file tools are sandboxed and reject any path that
   escapes the sandbox root.
 
+A defended counterpart, `test-lab/clean_mcp_lab/`, mirrors the vulnerable lab
+with egress control on the send path and enforced identity scoping — the scanner
+reports 0 findings against it, which is the false-positive check.
+
 See [`test-lab/README.md`](test-lab/README.md) for full details.
 
 ## Comparison: dynamic vs. static, against the identical target
@@ -172,8 +211,6 @@ individually malicious. The vulnerability exists only in how they can be
 *combined*, which is visible only by executing the chain against the live
 server.
 
-*(Screenshots to be added.)*
-
 ## Installation
 
 Requires **Python 3.10+** (the `mcp` SDK requirement).
@@ -193,9 +230,12 @@ are identical regardless of transport:
 - **HTTP** connects to a running server's streamable-HTTP endpoint:
   `--transport http --url http://host:port/mcp`.
 
+Top-level flags: `--version`, `-v/--verbose` (show the target's own stderr —
+off by default), and per-command `--connect-timeout SECONDS` (default 30s).
+
 ```bash
-# Show help
-mcp-attack-scanner --help
+mcp-attack-scanner --help          # top-level help
+mcp-attack-scanner scan --help     # per-command help
 ```
 
 ### Discover a target's tools
@@ -230,8 +270,8 @@ mcp-attack-scanner scan \
 ```
 
 `scan` runs every implemented attack module — tool-chaining exfiltration and
-permission escalation — and renders their findings in one report. `--output
-json` emits the full `ScanReport` as JSON.
+permission escalation — and renders their findings in one combined report.
+`--output json` emits the full `ScanReport` as JSON.
 
 ### Trying it against the lab
 
@@ -271,27 +311,36 @@ secured counterpart, against which the scan reports 0 findings.
 
 Rough, honest next steps — no timelines:
 
-1. ~~**A second attack category**~~ — done. `permission_escalation` detects
-   broken authorization on identity-scoped tools; `scan` runs it alongside
-   `tool_chain_exfil`. Next up in this line: prompt-injection-via-tool-output.
-2. ~~**Safe-target validation testing**~~ — done. `test-lab/clean_mcp_lab/` is
-   a properly-secured counterpart; the scanner reports 0 findings against it.
-3. ~~**HTTP / streamable-HTTP transport** in `MCPClient`~~ — done. `--transport
-   http --url` connects to a remote endpoint through the same code paths as
-   stdio; `test-lab/serve_http.py` serves either lab over HTTP for testing.
-4. **A GUI**, eventually, once the CLI and attack coverage are solid.
+1. **A third attack category** — prompt-injection-via-tool-output: a read tool
+   returns attacker-controlled instructions, and the module confirms whether a
+   downstream tool acted on them.
+2. **Reporting**: SARIF output for CI integration; per-finding remediation
+   guidance.
+3. **A GUI**, eventually, once the CLI and attack coverage are solid.
 
-## Status note
+## Contributing
 
-This is an active work-in-progress and a personal security-research project, not
-a finished or production-ready product. Interfaces, output, and structure may
-change.
+Issues and pull requests are welcome — this is an early project and there is
+plenty of room to help. Some ways to get involved:
 
-## ⚠️ Authorized use only
+- **Report false positives or false negatives** against your own MCP server
+  (please redact anything sensitive first). A small, self-contained
+  reproduction is worth a lot.
+- **Suggest or implement a new attack module.** The bar for a new module is one
+  intentional example in `test-lab/vulnerable_mcp_lab/` that the module catches
+  and a matching negative case in `test-lab/clean_mcp_lab/` that it stays
+  silent on.
+- **Improve the heuristics.** The tool/parameter classification in each module
+  is deliberately conservative; contributions that reduce false positives
+  without weakening true positives (backed by lab tests) are ideal.
 
-This is an offensive security testing tool. Only run it against MCP servers you
-own or are explicitly authorized to test.
+Before opening a PR: `pip install -e ".[dev]"` and confirm `pytest` is green.
+
+## Authorized use only
+
+⚠️  This is an offensive security testing tool. Only run it against MCP servers
+you own or are explicitly authorized to test.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).

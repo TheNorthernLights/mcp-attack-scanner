@@ -4,20 +4,34 @@ build-backend = "hatchling.build"
 
 [project]
 name = "mcp-attack-scanner"
-version = "0.0.1"
-description = "Dynamic security testing for MCP (Model Context Protocol) servers — executes tool-chaining abuse, permission escalation, and prompt-injection-via-tool-output attacks end-to-end against a live target."
+version = "0.1.0"
+description = "Dynamic security testing for MCP (Model Context Protocol) servers — executes tool-chaining exfiltration and permission-escalation attacks end-to-end against a live target."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "Abhinav Giridhar" }]
-keywords = ["mcp", "security", "dast", "pentest", "prompt-injection"]
+authors = [{ name = "Abhinav Giridhar", email = "abhinavgiridhar303@gmail.com" }]
+keywords = [
+    "mcp",
+    "model-context-protocol",
+    "security",
+    "dast",
+    "pentest",
+    "prompt-injection",
+    "llm-security",
+]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
+    "Intended Audience :: Information Technology",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
     "Topic :: Security",
+    "Topic :: Software Development :: Testing",
+    "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
 
 dependencies = [
@@ -38,10 +52,29 @@ mcp-attack-scanner = "mcp_attack_scanner.cli:main"
 [project.urls]
 Homepage = "https://github.com/abhinavgiridhar/mcp-attack-scanner"
 Repository = "https://github.com/abhinavgiridhar/mcp-attack-scanner"
+Issues = "https://github.com/abhinavgiridhar/mcp-attack-scanner/issues"
+Changelog = "https://github.com/abhinavgiridhar/mcp-attack-scanner/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mcp_attack_scanner"]
 
+[tool.hatch.build.targets.sdist]
+include = [
+    "mcp_attack_scanner",
+    "tests",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "pyproject.toml",
+]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+filterwarnings = [
+    "error",
+    # anyio 4 raises PendingDeprecationWarning under asyncio in some SDK code
+    # paths we do not control; only silence noise from third-party packages.
+    "default::DeprecationWarning:mcp.*",
+    "default::DeprecationWarning:pydantic.*",
+]

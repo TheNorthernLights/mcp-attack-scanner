@@ -1,9 +1,6 @@
-"""Smoke tests for the scaffold.
+"""Smoke tests for the package scaffold and CLI wiring."""
 
-These verify the package imports and the CLI loads. Attack-specific tests are
-added with each attack module.
-"""
-
+import pytest
 from click.testing import CliRunner
 
 from mcp_attack_scanner import __version__
@@ -12,7 +9,7 @@ from mcp_attack_scanner.client import TargetConfig, Transport
 from mcp_attack_scanner.reporting import Outcome, ScanReport, Severity, render_json
 
 
-def test_version_is_set():
+def test_package_exposes_a_version():
     assert __version__
 
 
@@ -22,22 +19,32 @@ def test_cli_help_loads():
     assert "MCP" in result.output
 
 
-def test_stdio_config_requires_command():
-    cfg = TargetConfig(transport=Transport.STDIO)
-    try:
-        cfg.validate()
-    except ValueError:
-        return
-    raise AssertionError("expected ValueError for stdio without command")
+def test_cli_version_flag_prints_the_package_version():
+    result = CliRunner().invoke(main, ["--version"])
+    assert result.exit_code == 0
+    assert __version__ in result.output
 
 
-def test_http_config_requires_url():
-    cfg = TargetConfig(transport=Transport.HTTP)
-    try:
-        cfg.validate()
-    except ValueError:
-        return
-    raise AssertionError("expected ValueError for http without url")
+def test_stdio_config_rejects_missing_command():
+    with pytest.raises(ValueError, match="stdio transport requires --command"):
+        TargetConfig(transport=Transport.STDIO).validate()
+
+
+def test_http_config_rejects_missing_url():
+    with pytest.raises(ValueError, match="http transport requires --url"):
+        TargetConfig(transport=Transport.HTTP).validate()
+
+
+def test_stdio_config_rejects_stray_url():
+    with pytest.raises(ValueError, match="stdio transport ignores --url"):
+        TargetConfig(
+            transport=Transport.STDIO, command="x", url="http://x").validate()
+
+
+def test_http_config_rejects_stray_command():
+    with pytest.raises(ValueError, match="http transport ignores --command"):
+        TargetConfig(
+            transport=Transport.HTTP, url="http://x", command="foo").validate()
 
 
 def test_empty_report_serializes_to_json():
