@@ -39,9 +39,9 @@ flowchart TD
     subgraph conn ["Connection"]
         CLI["CLI (cli.py)<br/>list-tools · call-tool · scan"]
         Client["MCPClient (client.py)<br/>connect / list_tools / call_tool"]
-        Target["Target MCP server<br/>(stdio subprocess)"]
+        Target["Target MCP server<br/>(stdio subprocess or HTTP endpoint)"]
         CLI --> Client
-        Client -->|"stdio (implemented)<br/>HTTP (planned)"| Target
+        Client -->|"stdio · streamable HTTP<br/>(both implemented)"| Target
     end
 
     subgraph atk ["Attacks and Reporting"]
@@ -66,8 +66,11 @@ Concretely:
 - **`cli.py`** — a [click](https://click.palletsprojects.com) command group with
   three subcommands: `list-tools`, `call-tool`, and `scan`.
 - **`client.py`** — `MCPClient`, a thin async wrapper over the official `mcp`
-  SDK. `connect()` spawns the target over stdio and runs the MCP `initialize`
-  handshake; `list_tools()` and `call_tool()` enumerate and invoke tools.
+  SDK. `connect()` opens the target over either stdio (spawn a subprocess) or
+  streamable HTTP (connect to a remote endpoint) and runs the MCP `initialize`
+  handshake; `list_tools()` and `call_tool()` enumerate and invoke tools. The
+  transport choice is confined to `connect()`, so everything above it — attack
+  modules, reporting, CLI — is transport-agnostic.
 - **`attacks/`** — the attack modules. Each exposes `ATTACK_ID`, `CATEGORY`, and
   `async run(config) -> list[Finding]`, and opens its own connection to the
   target, so modules are independent of one another. `scan` walks
@@ -87,6 +90,7 @@ This is an early work-in-progress. Being explicit about what is and is not real:
 | --- | --- |
 | CLI (`list-tools`, `call-tool`, `scan`) | ✅ working |
 | Real stdio MCP client — connect + `initialize` handshake | ✅ working |
+| Streamable HTTP MCP client — connect + `initialize` handshake | ✅ working |
 | Tool discovery (`list_tools`) | ✅ working |
 | Tool invocation (`call_tool`) | ✅ working |
 | Attack module: tool-chaining exfiltration detection | ✅ working |
@@ -96,9 +100,6 @@ This is an early work-in-progress. Being explicit about what is and is not real:
 
 **Not yet built:**
 
-- **HTTP transport.** The `--transport http` / `--url` flags are parsed, but
-  `MCPClient.connect()` currently raises `NotImplementedError` for anything other
-  than stdio. Only stdio targets work today.
 - **Additional attack categories.** Tool-chaining exfiltration and permission
   escalation exist; prompt-injection-via-tool-output is not implemented.
 - **~~Safe-target / false-positive testing.~~** Done — `test-lab/clean_mcp_lab/`
@@ -184,8 +185,13 @@ pip install -e ".[dev]"
 
 ## Usage
 
-All commands target a stdio MCP server by spawning it as a subprocess: `--command`
-is the executable and each `--arg` is one argument passed to it.
+Every command takes the same transport flags, and the attack/reporting layers
+are identical regardless of transport:
+
+- **stdio** (default) spawns the target as a subprocess: `--command` is the
+  executable and each `--arg` is one argument passed to it.
+- **HTTP** connects to a running server's streamable-HTTP endpoint:
+  `--transport http --url http://host:port/mcp`.
 
 ```bash
 # Show help
@@ -242,6 +248,25 @@ mcp-attack-scanner scan \
 
 Run from `test-lab/` (or otherwise ensure `vulnerable_mcp_lab` is importable).
 
+### Scanning an HTTP target
+
+Point the same commands at a streamable-HTTP endpoint with `--transport http
+--url`. To try it against the lab, `test-lab/serve_http.py` runs either lab
+server over HTTP (default port `8081`, endpoint path `/mcp`):
+
+```bash
+# Terminal 1 — serve the vulnerable lab over HTTP
+python test-lab/serve_http.py --lab vulnerable --port 8081
+
+# Terminal 2 — enumerate and scan it over HTTP
+mcp-attack-scanner list-tools --transport http --url http://localhost:8081/mcp
+mcp-attack-scanner scan       --transport http --url http://localhost:8081/mcp
+```
+
+The scan reports the same findings it does over stdio — the transport swap
+changes nothing above `MCPClient.connect()`. Pass `--lab clean` to serve the
+secured counterpart, against which the scan reports 0 findings.
+
 ## Roadmap
 
 Rough, honest next steps — no timelines:
@@ -251,7 +276,9 @@ Rough, honest next steps — no timelines:
    `tool_chain_exfil`. Next up in this line: prompt-injection-via-tool-output.
 2. ~~**Safe-target validation testing**~~ — done. `test-lab/clean_mcp_lab/` is
    a properly-secured counterpart; the scanner reports 0 findings against it.
-3. **HTTP / streamable-HTTP transport** in `MCPClient`.
+3. ~~**HTTP / streamable-HTTP transport** in `MCPClient`~~ — done. `--transport
+   http --url` connects to a remote endpoint through the same code paths as
+   stdio; `test-lab/serve_http.py` serves either lab over HTTP for testing.
 4. **A GUI**, eventually, once the CLI and attack coverage are solid.
 
 ## Status note
