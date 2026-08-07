@@ -11,7 +11,6 @@ requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [{ name = "Abhinav Giridhar", email = "abhinavgiridhar303@gmail.com" }]
 keywords = [
-    "mcp",
     "model-context-protocol",
     "security",
     "dast",
@@ -50,10 +49,10 @@ dev = [
 mcp-attack-scanner = "mcp_attack_scanner.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/abhinavgiridhar/mcp-attack-scanner"
-Repository = "https://github.com/abhinavgiridhar/mcp-attack-scanner"
-Issues = "https://github.com/abhinavgiridhar/mcp-attack-scanner/issues"
-Changelog = "https://github.com/abhinavgiridhar/mcp-attack-scanner/blob/main/CHANGELOG.md"
+Homepage = "https://github.com/TheNorthernLights/mcp-attack-scanner"
+Repository = "https://github.com/TheNorthernLights/mcp-attack-scanner"
+Issues = "https://github.com/TheNorthernLights/mcp-attack-scanner/issues"
+Changelog = "https://github.com/TheNorthernLights/mcp-attack-scanner/blob/main/CHANGELOG.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["mcp_attack_scanner"]
