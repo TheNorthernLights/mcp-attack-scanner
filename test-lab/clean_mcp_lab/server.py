@@ -4,8 +4,11 @@ This is the control target for mcp-attack-scanner. It deliberately mirrors
 `vulnerable_mcp_lab`: the same four tools, the same sandbox, the same seeded
 fake `credentials.txt`, the same fake user directory. The differences are the
 ones that matter — this server enforces egress control on `send_notification`
-and identity scoping on `get_user_record`, so both attacks that succeed against
-`vulnerable_mcp_lab` are refused here.
+and identity scoping on `get_user_record`, so both tool-level attacks that
+succeed against `vulnerable_mcp_lab` are refused here. The third category,
+prompt injection via tool output, is defended at the data level rather than in
+this module: `seed.py` writes a `meeting-notes.md` with no planted payload, so
+the read tools return nothing for that module to flag.
 
 Its purpose is to check that the scanner stays quiet when there is nothing to
 report. A finding against this target is a false positive.

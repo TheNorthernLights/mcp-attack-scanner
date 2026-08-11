@@ -13,7 +13,11 @@ from typing import Any
 import click
 
 from . import __version__
-from .attacks import permission_escalation, tool_chain_exfil
+from .attacks import (
+    permission_escalation,
+    prompt_injection_tool_output,
+    tool_chain_exfil,
+)
 from .client import DEFAULT_CONNECT_TIMEOUT, MCPClient, TargetConfig, Transport
 from .reporting import (
     Finding,
@@ -41,9 +45,9 @@ def main(ctx: click.Context, verbose: bool) -> None:
     """Dynamic security testing for MCP (Model Context Protocol) servers.
 
     Executes attacks end-to-end against a live MCP server (tool-chaining
-    exfiltration, permission escalation) rather than statically scanning tool
-    descriptions. Findings are reported only when the attack actually succeeded
-    against the running target.
+    exfiltration, permission escalation, prompt injection via tool output)
+    rather than statically scanning tool descriptions. Findings are reported
+    only when the attack actually succeeded against the running target.
     """
     ctx.ensure_object(dict)
     ctx.obj["verbose"] = verbose
@@ -176,7 +180,8 @@ async def _preflight(cfg: TargetConfig) -> None:
 # Attack modules run by `scan`, in order. Each exposes
 # `run(TargetConfig) -> list[Finding]` and opens its own connection to the
 # target, so a module that fails to connect does not take the others down.
-ATTACK_MODULES = (tool_chain_exfil, permission_escalation)
+ATTACK_MODULES = (tool_chain_exfil, permission_escalation,
+                  prompt_injection_tool_output)
 
 
 def _target_label(cfg: TargetConfig) -> str:
@@ -338,8 +343,9 @@ def scan(ctx: click.Context, transport: str, command: str | None,
          output: str) -> None:
     """Run every implemented attack module against the target.
 
-    Runs tool-chaining exfiltration and permission escalation, and reports the
-    findings from both in one combined report.
+    Runs tool-chaining exfiltration, permission escalation, and prompt injection
+    via tool output, and reports the findings from all three in one combined
+    report.
     """
     cfg = _build_config(ctx, transport, command, args, url, connect_timeout)
     report = ScanReport(target=_target_label(cfg))

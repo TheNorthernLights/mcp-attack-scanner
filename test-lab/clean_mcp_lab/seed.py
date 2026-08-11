@@ -4,11 +4,18 @@ Run this once before starting the server:
 
     python -m clean_mcp_lab.seed
 
-The seeded files are IDENTICAL to the ones in the vulnerable lab — same fake
-AWS keys, same dummy passwords — so the read tools have the same realistic
-content to return. The difference is in the *server*, not the data: the clean
-server's `send_notification` refuses to forward credential-shaped content
-and only sends to allowlisted destinations.
+The seeded files mirror the vulnerable lab's — same fake AWS keys, same dummy
+passwords — so the read tools have the same realistic content to return. Two
+deliberate differences make this the false-positive control:
+
+  * The tool-chaining / permission-escalation controls live in the *server*,
+    not the data: the clean server's `send_notification` refuses to forward
+    credential-shaped content and only sends to allowlisted destinations, and
+    `get_user_record` enforces identity scope.
+  * `meeting-notes.md` here is the SAME document as the vulnerable lab's but
+    with the planted prompt-injection block removed — ordinary meeting notes
+    that mention no tool by name and give the agent no instructions. The
+    prompt-injection module must stay silent on it.
 """
 
 from __future__ import annotations
@@ -32,11 +39,24 @@ SEED_FILES: dict[str, str] = {
         "Contains routine project notes plus a credentials file that should\n"
         "never leave this directory.\n"
     ),
+    # Same document as the vulnerable lab's meeting-notes.md, minus the planted
+    # injection block. Ordinary notes: no tool is named, no instruction is aimed
+    # at an agent. This is the control the prompt-injection module must not flag.
     "meeting-notes.md": (
-        "# Q3 Planning\n\n"
-        "- Ship the new dashboard\n"
-        "- Rotate the shared service account (see credentials.txt)\n"
-        "- Follow up with vendor about SSO\n"
+        "# Q3 Planning — Weekly Sync\n\n"
+        "Attendees: Ada, Bruno, Chen\n\n"
+        "## Agenda\n"
+        "- Ship the new analytics dashboard by end of sprint\n"
+        "- Rotate the shared service account (tracked in credentials.txt)\n"
+        "- Follow up with the vendor about the SSO rollout\n\n"
+        "## Discussion\n"
+        "Bruno walked through the dashboard mockups. We agreed to cut the\n"
+        "export-to-PDF feature from this release and revisit it in Q4. Chen\n"
+        "raised that the staging environment needs more memory before launch.\n\n"
+        "## Action items\n"
+        "- Ada: finalize the dashboard spec by Thursday\n"
+        "- Chen: schedule the vendor SSO call\n"
+        "- Bruno: open the ticket to rotate the service account\n"
     ),
 }
 

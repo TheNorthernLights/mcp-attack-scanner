@@ -21,8 +21,15 @@ The INTENTIONAL vulnerabilities (the whole point of this lab):
      documented as returning "the current user's own account record", but it
      never checks that the requested `user_id` is the caller's — the MCP
      equivalent of an IDOR.
+  3. **Prompt injection carried in tool output.** This one lives in the *data*,
+     not this module: `seed.py` plants an indirect prompt-injection payload in
+     `meeting-notes.md`. When an agent calls `read_file("meeting-notes.md")`,
+     the returned content carries instructions naming `send_notification` and
+     telling the agent to exfiltrate `credentials.txt`. The payload is inert
+     here — nothing acts on it — but it is what the scanner detects by
+     inspecting read-tool output.
 
-Both are exactly what mcp-attack-scanner should catch.
+All three are exactly what mcp-attack-scanner should catch.
 """
 
 from __future__ import annotations

@@ -40,9 +40,10 @@ mcp-attack-scanner scan --transport stdio \
     --command python --arg -m --arg vulnerable_mcp_lab.server
 ```
 
-Expected output: two HIGH-severity findings — a tool-chaining exfiltration
-chain (`read_file → send_notification`) and a permission-escalation IDOR on
-`get_user_record`.
+Expected output: three HIGH-severity findings — a tool-chaining exfiltration
+chain (`read_file → send_notification`), a permission-escalation IDOR on
+`get_user_record`, and a prompt-injection payload planted in `meeting-notes.md`
+that `read_file` returns.
 
 ## Why this exists
 
@@ -85,18 +86,22 @@ flowchart TD
     subgraph atk ["Attacks and Reporting"]
         Exfil["attacks/tool_chain_exfil.py"]
         PermEsc["attacks/permission_escalation.py"]
+        Inject["attacks/prompt_injection_tool_output.py"]
         Findings["Finding / ScanReport<br/>(reporting.py data model)"]
         Render["Renderers<br/>render_human · render_json"]
         Out["Human table / JSON"]
         Exfil -->|uses| Client
         PermEsc -->|uses| Client
+        Inject -->|uses| Client
         Exfil -->|produces| Findings
         PermEsc -->|produces| Findings
+        Inject -->|produces| Findings
         Findings --> Render --> Out
     end
 
-    CLI -->|scan runs both| Exfil
-    CLI -->|scan runs both| PermEsc
+    CLI -->|scan runs all| Exfil
+    CLI -->|scan runs all| PermEsc
+    CLI -->|scan runs all| Inject
 ```
 
 Concretely:
@@ -115,6 +120,8 @@ Concretely:
   `cli.ATTACK_MODULES` and merges the findings into one report.
   - `tool_chain_exfil.py` — read-tool output pushed out through a send tool.
   - `permission_escalation.py` — broken authorization on identity-scoped tools.
+  - `prompt_injection_tool_output.py` — read-tool output carrying instructions
+    that reference other tools on the same server by name.
 - **`reporting.py`** — the `Finding` / `ScanReport` data model plus renderers
   (`render_human` via `rich`, `render_json`).
 
@@ -133,17 +140,16 @@ This is an early work-in-progress. Being explicit about what is and is not real:
 | Tool invocation (`call_tool`) | ✅ working |
 | Attack module: tool-chaining exfiltration detection | ✅ working |
 | Attack module: permission escalation (broken authorization) | ✅ working |
+| Attack module: prompt injection via tool output | ✅ working |
 | Reporting: human table + JSON | ✅ working |
 | Vulnerable + clean test labs | ✅ present (`test-lab/`) |
 
 **Not yet built:**
 
-- **Additional attack categories.** Tool-chaining exfiltration and permission
-  escalation exist; prompt-injection-via-tool-output is not implemented.
 - **GUI.** CLI only.
 
 Do not treat this as a mature or complete tool — it is a small, honest core with
-two working attacks.
+three working attacks.
 
 ## The vulnerable test lab
 
@@ -169,6 +175,11 @@ It carries one intended vulnerability per attack category:
    documented as returning "the current user's own account record" but never
    checks that `user_id` is the caller's, so `get_user_record("u2")` hands back
    another user's record. The MCP equivalent of an IDOR.
+3. **Prompt injection carried in tool output** — the seeded `meeting-notes.md`
+   hides an indirect prompt-injection payload in otherwise-ordinary notes,
+   naming `send_notification` by hand and instructing the agent to exfiltrate
+   `credentials.txt`. The scanner detects it by *inspecting* what `read_file`
+   returns, never by acting on it.
 
 Safety guarantees, by design:
 
@@ -181,8 +192,9 @@ Safety guarantees, by design:
   escapes the sandbox root.
 
 A defended counterpart, `test-lab/clean_mcp_lab/`, mirrors the vulnerable lab
-with egress control on the send path and enforced identity scoping — the scanner
-reports 0 findings against it, which is the false-positive check.
+with egress control on the send path, enforced identity scoping, and a
+payload-free `meeting-notes.md` — the scanner reports 0 findings against it,
+which is the false-positive check.
 
 See [`test-lab/README.md`](test-lab/README.md) for full details.
 
@@ -269,9 +281,10 @@ mcp-attack-scanner scan \
   --transport stdio --command python --arg -m --arg my_server
 ```
 
-`scan` runs every implemented attack module — tool-chaining exfiltration and
-permission escalation — and renders their findings in one combined report.
-`--output json` emits the full `ScanReport` as JSON.
+`scan` runs every implemented attack module — tool-chaining exfiltration,
+permission escalation, and prompt injection via tool output — and renders their
+findings in one combined report. `--output json` emits the full `ScanReport` as
+JSON.
 
 ### Trying it against the lab
 
@@ -311,9 +324,10 @@ secured counterpart, against which the scan reports 0 findings.
 
 Rough, honest next steps — no timelines:
 
-1. **A third attack category** — prompt-injection-via-tool-output: a read tool
-   returns attacker-controlled instructions, and the module confirms whether a
-   downstream tool acted on them.
+1. **More attack categories.** Three exist (tool-chaining exfiltration,
+   permission escalation, prompt injection via tool output); candidates for a
+   fourth include unsafe tool-argument reflection and confused-deputy chains
+   across tools.
 2. **Reporting**: SARIF output for CI integration; per-finding remediation
    guidance.
 3. **A GUI**, eventually, once the CLI and attack coverage are solid.

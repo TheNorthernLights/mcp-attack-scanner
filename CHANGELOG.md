@@ -5,6 +5,25 @@ early-stage — versioning follows [Semantic Versioning](https://semver.org),
 and pre-1.0 releases may make breaking changes to the CLI or JSON schema
 between minor versions.
 
+## [Unreleased]
+
+### Added
+- Attack module **`prompt_injection_tool_output`**: inspects the content that
+  the target's read-shaped tools return and reports a finding when that content
+  carries an indirect prompt-injection payload — embedded instructions that
+  reference at least one *other* tool on the same server by its exact name AND
+  use imperative/directive language aimed at an agent. The module detects the
+  payload by inspection only and never acts on it; both signals are required so
+  descriptive documentation and instruction-shaped prose are not flagged.
+- Test lab: `vulnerable_mcp_lab` now seeds `meeting-notes.md` with a realistic
+  planted injection payload (naming `send_notification`, instructing an agent to
+  exfiltrate `credentials.txt`); `clean_mcp_lab` seeds the same document with the
+  payload removed, as the false-positive control.
+
+### Changed
+- `scan` now runs all three attack modules and merges their findings; the
+  vulnerable lab yields 3 findings and the clean lab still yields 0.
+
 ## [0.1.0] — 2026-08-06
 
 Initial public release. A working proof-of-concept, not a stable production

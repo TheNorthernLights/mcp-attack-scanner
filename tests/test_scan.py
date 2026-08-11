@@ -1,7 +1,7 @@
 """Tests for the `scan` command wiring.
 
 `scan` must run *every* attack module and merge their findings into one report,
-so a target with two different flaws comes back with two findings.
+so a target with three different flaws comes back with three findings.
 """
 
 from __future__ import annotations
@@ -33,20 +33,24 @@ def test_every_module_exposes_the_shared_surface():
         assert callable(module.run)
 
 
-def test_both_attack_modules_are_wired_in():
+def test_all_attack_modules_are_wired_in():
     assert {m.ATTACK_ID for m in ATTACK_MODULES} == {
-        "tool_chain_exfil", "permission_escalation"}
+        "tool_chain_exfil", "permission_escalation",
+        "prompt_injection_tool_output"}
 
 
-def test_scan_reports_both_findings_for_the_vulnerable_lab():
+def test_scan_reports_all_findings_for_the_vulnerable_lab():
     report = _scan("vulnerable_mcp_lab")
 
     by_attack = {f["attack_id"]: f for f in report["findings"]}
-    assert set(by_attack) == {"tool_chain_exfil", "permission_escalation"}
-    assert [f["outcome"] for f in report["findings"]] == ["vulnerable"] * 2
-    assert [f["severity"] for f in report["findings"]] == ["high"] * 2
+    assert set(by_attack) == {"tool_chain_exfil", "permission_escalation",
+                              "prompt_injection_tool_output"}
+    assert [f["outcome"] for f in report["findings"]] == ["vulnerable"] * 3
+    assert [f["severity"] for f in report["findings"]] == ["high"] * 3
     assert by_attack["tool_chain_exfil"]["category"] == "tool-chaining-exfiltration"
     assert by_attack["permission_escalation"]["category"] == "permission-escalation"
+    assert (by_attack["prompt_injection_tool_output"]["category"]
+            == "prompt-injection-tool-output")
 
 
 def test_scan_reports_nothing_for_the_clean_lab():
