@@ -136,6 +136,7 @@ This is an early work-in-progress. Being explicit about what is and is not real:
 | CLI (`list-tools`, `call-tool`, `scan`) | ✅ working |
 | Real stdio MCP client — connect + `initialize` handshake | ✅ working |
 | Streamable HTTP MCP client — connect + `initialize` handshake | ✅ working |
+| HTTP authentication — custom headers via `--header` (Bearer / API key) | ✅ working |
 | Tool discovery (`list_tools`) | ✅ working |
 | Tool invocation (`call_tool`) | ✅ working |
 | Attack module: tool-chaining exfiltration detection | ✅ working |
@@ -319,6 +320,38 @@ mcp-attack-scanner scan       --transport http --url http://localhost:8081/mcp
 The scan reports the same findings it does over stdio — the transport swap
 changes nothing above `MCPClient.connect()`. Pass `--lab clean` to serve the
 secured counterpart, against which the scan reports 0 findings.
+
+### Authenticated targets
+
+Real MCP servers usually sit behind authentication. Use the repeatable
+`--header` flag (available on `scan`, `list-tools`, and `call-tool`) to attach
+custom HTTP headers to **every** request the scanner makes — the `initialize`
+handshake, `list_tools`, and each `call_tool`. The scanner passes the headers
+through verbatim without interpreting the auth scheme, so the same flag covers
+Bearer tokens, API keys, and any other header a target requires:
+
+```bash
+# Bearer token
+mcp-attack-scanner scan --transport http --url https://mcp.example.com/mcp \
+  --header "Authorization: Bearer eyJhbG..."
+
+# API key
+mcp-attack-scanner scan --transport http --url https://mcp.example.com/mcp \
+  --header "X-API-Key: abc123"
+
+# Multiple headers — repeat --header once per header
+mcp-attack-scanner scan --transport http --url https://mcp.example.com/mcp \
+  --header "Authorization: Bearer eyJhbG..." \
+  --header "X-Tenant-ID: acme"
+```
+
+Each header is a single `Name: Value` string (split on the first colon, so
+values may themselves contain colons). `--header` requires `--transport http`;
+using it with `--transport stdio` is an error, as is a header string with no
+colon.
+
+There is no OAuth or interactive login flow — obtain a token however your
+target issues them and pass it with `--header`.
 
 ## Roadmap
 

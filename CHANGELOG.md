@@ -15,6 +15,13 @@ between minor versions.
   use imperative/directive language aimed at an agent. The module detects the
   payload by inspection only and never acts on it; both signals are required so
   descriptive documentation and instruction-shaped prose are not flagged.
+- **HTTP authentication** via a repeatable `--header "Name: Value"` flag on
+  `scan`, `list-tools`, and `call-tool`. Headers are threaded through the MCP
+  SDK's streamable-HTTP client and sent with every request of the session
+  (initialize handshake, `list_tools`, `call_tool`), covering Bearer tokens,
+  API keys, and arbitrary custom headers without the scanner interpreting the
+  auth scheme. Using `--header` with `--transport stdio`, or passing a header
+  string without a colon, is rejected with a clear error.
 - Test lab: `vulnerable_mcp_lab` now seeds `meeting-notes.md` with a realistic
   planted injection payload (naming `send_notification`, instructing an agent to
   exfiltrate `credentials.txt`); `clean_mcp_lab` seeds the same document with the

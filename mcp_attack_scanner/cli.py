@@ -90,6 +90,15 @@ def _target_options(f, *, arg_flag: str = "--arg"):
              "(e.g. http://localhost:8081/mcp).",
     )(f)
     f = click.option(
+        "--header",
+        "headers",
+        multiple=True,
+        metavar="'NAME: VALUE'",
+        help="[http] Custom HTTP header to send with every request, e.g. "
+             "--header 'Authorization: Bearer <token>' (repeat once per "
+             "header). Only valid with --transport http.",
+    )(f)
+    f = click.option(
         "--connect-timeout",
         type=click.FloatRange(min=0.1),
         default=DEFAULT_CONNECT_TIMEOUT,
@@ -105,9 +114,28 @@ def _target_options_server_arg(f):
     return _target_options(f, arg_flag="--server-arg")
 
 
+def _parse_headers(raw: tuple[str, ...]) -> dict[str, str]:
+    """Parse repeated ``Name: Value`` strings into an HTTP headers dict.
+
+    Splits on the first colon so header values may themselves contain colons
+    (Bearer tokens, URLs). Both the name and value are stripped of surrounding
+    whitespace, matching how ``Name: Value`` is written on the wire.
+    """
+    headers: dict[str, str] = {}
+    for item in raw:
+        name, sep, value = item.partition(":")
+        if not sep or not name.strip():
+            raise click.ClickException(
+                f"invalid header format {item!r}, expected 'Name: Value'."
+            )
+        headers[name.strip()] = value.strip()
+    return headers
+
+
 def _build_config(ctx: click.Context, transport: str, command: str | None,
                   args: tuple[str, ...], url: str | None,
-                  connect_timeout: float) -> TargetConfig:
+                  connect_timeout: float,
+                  headers: tuple[str, ...] = ()) -> TargetConfig:
     """Assemble a validated TargetConfig, converting validation failures into
     clean ClickExceptions so the user sees a readable message, not a
     traceback."""
@@ -116,6 +144,7 @@ def _build_config(ctx: click.Context, transport: str, command: str | None,
         command=command,
         args=list(args),
         url=url,
+        headers=_parse_headers(headers),
         verbose=bool(ctx.obj.get("verbose") if ctx.obj else False),
         connect_timeout=connect_timeout,
     )
@@ -210,9 +239,11 @@ async def _discover_tools(cfg: TargetConfig) -> list[ToolInfo]:
 @click.pass_context
 def list_tools(ctx: click.Context, transport: str, command: str | None,
                args: tuple[str, ...], url: str | None,
-               connect_timeout: float, output: str) -> None:
+               connect_timeout: float, headers: tuple[str, ...],
+               output: str) -> None:
     """Connect to the target and enumerate the tools it exposes."""
-    cfg = _build_config(ctx, transport, command, args, url, connect_timeout)
+    cfg = _build_config(ctx, transport, command, args, url, connect_timeout,
+                        headers)
     try:
         tools = asyncio.run(_discover_tools(cfg))
     except Exception as exc:  # surface a clean CLI error, not a traceback
@@ -271,15 +302,16 @@ async def _call_tool(cfg: TargetConfig, tool_name: str,
 @click.pass_context
 def call_tool(ctx: click.Context, transport: str, command: str | None,
               args: tuple[str, ...], url: str | None,
-              connect_timeout: float, tool_name: str,
-              tool_args: tuple[str, ...]) -> None:
+              connect_timeout: float, headers: tuple[str, ...],
+              tool_name: str, tool_args: tuple[str, ...]) -> None:
     """Invoke a single tool on the target and print the raw result.
 
     Debug/verification helper — not part of `scan`. Because --arg carries the
     tool's own key=value arguments here, the stdio subprocess arguments move
     to --server-arg.
     """
-    cfg = _build_config(ctx, transport, command, args, url, connect_timeout)
+    cfg = _build_config(ctx, transport, command, args, url, connect_timeout,
+                        headers)
     arguments = _parse_tool_args(tool_args)
     try:
         result = asyncio.run(_call_tool(cfg, tool_name, arguments))
@@ -340,14 +372,15 @@ async def _run_attacks(cfg: TargetConfig) -> list[Finding]:
 @click.pass_context
 def scan(ctx: click.Context, transport: str, command: str | None,
          args: tuple[str, ...], url: str | None, connect_timeout: float,
-         output: str) -> None:
+         headers: tuple[str, ...], output: str) -> None:
     """Run every implemented attack module against the target.
 
     Runs tool-chaining exfiltration, permission escalation, and prompt injection
     via tool output, and reports the findings from all three in one combined
     report.
     """
-    cfg = _build_config(ctx, transport, command, args, url, connect_timeout)
+    cfg = _build_config(ctx, transport, command, args, url, connect_timeout,
+                        headers)
     report = ScanReport(target=_target_label(cfg))
     try:
         asyncio.run(_preflight(cfg))

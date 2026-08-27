@@ -77,6 +77,10 @@ class TargetConfig:
                 "http transport ignores --command/--arg; drop them or use "
                 "--transport stdio"
             )
+        if self.transport is Transport.STDIO and self.headers:
+            raise ValueError(
+                "custom headers are only supported with HTTP transport."
+            )
 
 
 class MCPClient:
